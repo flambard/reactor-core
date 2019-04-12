@@ -1442,17 +1442,17 @@ public abstract class Operators {
 		protected final CoreSubscriber<? super O> actual;
 
 		protected O value;
-		volatile int state;
+		volatile int state; //see STATE field updater
+
 		public MonoSubscriber(CoreSubscriber<? super O> actual) {
 			this.actual = actual;
 		}
 
 		@Override
 		public void cancel() {
-			if (this.state <= HAS_REQUEST_NO_VALUE) {
+			if (STATE.getAndSet(this, CANCELLED) <= HAS_REQUEST_NO_VALUE) {
 				Operators.onDiscard(value, currentContext());
 			}
-			this.state = CANCELLED;
 			value = null;
 		}
 
