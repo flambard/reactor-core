@@ -97,7 +97,18 @@ final class MonoCollectList<T, C extends Collection<? super T>>
 				Operators.onNextDropped(t, actual.currentContext());
 				return;
 			}
+			if (isCancelled()) {
+				Operators.onDiscard(t, actual.currentContext());
+				return;
+			}
+
 			collection.add(t);
+
+			if (isCancelled()) {
+				synchronized (this) {
+					Operators.onDiscardMultiple(collection, actual.currentContext());
+				}
+			}
 		}
 
 		@Override
@@ -121,14 +132,22 @@ final class MonoCollectList<T, C extends Collection<? super T>>
 			collection = null;
 
 			complete(c);
+
+			if (isCancelled()) {
+				synchronized (this) {
+					Operators.onDiscardMultiple(c, actual.currentContext());
+				}
+			}
 		}
 
 		@Override
 		public void cancel() {
 			super.cancel();
 			s.cancel();
-			//specific discard of the collection
-			Operators.onDiscardMultiple(collection, actual.currentContext());
+			synchronized (this) {
+				//specific discard of the collection
+				Operators.onDiscardMultiple(collection, actual.currentContext());
+			}
 		}
 	}
 }
