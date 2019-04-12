@@ -19,6 +19,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import org.junit.Test;
 import org.reactivestreams.Subscription;
@@ -28,6 +29,9 @@ import reactor.core.Scannable;
 import reactor.core.publisher.MonoCollectList.MonoBufferAllSubscriber;
 import reactor.test.StepVerifier;
 import reactor.test.publisher.TestPublisher;
+import reactor.test.subscriber.AssertSubscriber;
+import reactor.test.util.RaceTestUtils;
+import reactor.util.context.Context;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static reactor.test.publisher.TestPublisher.Violation.CLEANUP_ON_TERMINATE;
@@ -192,6 +196,47 @@ public class MonoCollectListTest {
 		            .thenCancel()
 		            .verifyThenAssertThat()
 		            .hasDiscardedExactly(0L, 1L);
+	}
+
+
+	@Test
+	public void discardCancelNextRace() {
+		Context
+				discardingContext = Operators.enableOnDiscard(null, o -> ((AtomicBoolean) o).set(true));
+		for (int i = 0; i < 100_000; i++) {
+			AssertSubscriber<List<AtomicBoolean>> testSubscriber = new AssertSubscriber<>(discardingContext);
+			MonoBufferAllSubscriber<AtomicBoolean, List<AtomicBoolean>> subscriber = new MonoBufferAllSubscriber<>(testSubscriber,
+					new ArrayList<>());
+			subscriber.onSubscribe(Operators.emptySubscription());
+
+			AtomicBoolean extraneous = new AtomicBoolean(false);
+
+			RaceTestUtils.race(subscriber::cancel,
+					() -> subscriber.onNext(extraneous));
+
+			testSubscriber.assertNoValues();
+			assertThat(extraneous).as("released " + i).isTrue();
+		}
+	}
+
+	@Test
+	public void discardCancelCompleteRace() {
+		Context discardingContext = Operators.enableOnDiscard(null, o -> ((AtomicBoolean) o).set(true));
+		for (int i = 0; i < 100_000; i++) {
+			AssertSubscriber<List<AtomicBoolean>> testSubscriber = new AssertSubscriber<>(discardingContext);
+			MonoBufferAllSubscriber<AtomicBoolean, List<AtomicBoolean>> subscriber = new MonoBufferAllSubscriber<>(testSubscriber,
+					new ArrayList<>());
+			subscriber.onSubscribe(Operators.emptySubscription());
+
+			AtomicBoolean resource = new AtomicBoolean(false);
+			subscriber.onNext(resource);
+
+			RaceTestUtils.race(subscriber::cancel, subscriber::onComplete);
+
+			if (testSubscriber.values().isEmpty()) {
+				assertThat(resource).as("not completed and released " + i).isTrue();
+			}
+		}
 	}
 
 }
